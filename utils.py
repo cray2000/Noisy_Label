@@ -79,7 +79,7 @@ class CustomTrainer(Trainer):
                 self._past = outputs[self.args.past_index]
             
         # outputs로부터 logits(예측값)을 구합니다.
-        logits = outputs["logits"] if isinstance(output, dict) else outputs[1]
+        logits = outputs["logits"] if isinstance(outputs, dict) else outputs[1]
         # inputs로부터 정답을 구합니다.
         if labels is None:
             labels = inputs["labels"]
@@ -103,7 +103,7 @@ class CustomTrainer(Trainer):
                 self._past = outputs[self.args.past_index]
             
         # outputs로부터 logits(예측값)을 구합니다.
-        logits = output["logits"] if isinstance(output, dict) else outputs[1]
+        logits = outputs["logits"] if isinstance(outputs, dict) else outputs[1]
         # inputs로부터 정답을 구합니다.
         if labels is None:
             labels = inputs["labels"]
