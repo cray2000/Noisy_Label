@@ -31,6 +31,8 @@ from transformers.trainer_utils import (
     speed_metrics,
 )
 
+from sklearn.mixture import GaussianMixture
+
 DEFAULT_CALLBACKS = [DefaultFlowCallback]
 DEFAULT_PROGRESS_CALLBACK = ProgressCallback
 
@@ -61,10 +63,48 @@ def str2bool(i):
 
 
 class CustomTrainer(Trainer):
+    def get_clean(self, model, inputs):
+        
+        with torch.no_grad():            
+            if self.label_smoother is not None and "labels" in inputs:
+                labels = inputs.pop("labels")
+            else:
+                labels = None
+            outputs = model(**inputs)
+
+            if self.args.past_index >= 0:
+                self._past = outputs[self.args.past_index]
+            
+            if labels is not None:
+                loss = self.label_smoother(outputs, labels)
+            else:
+                loss = outputs["loss"] if isinstance(outputs, dict) else outputs[0]
+        
+        # outputs로부터 logits(예측값)을 구합니다.
+        # logits = None
+        # inputs로부터 정답을 구합니다.
+        # labels = None
+        
+        # 각 샘플별 로스를 계산합니다.
+        # loss = None
+        
+        # clean과 noisy 두 개의 분포를 가정하므로 n_components = 2 로 설정합니다.
+        # loss가 cuda tensor인 경우, numpy로 변경 필요
+        gmm = GaussianMixture(n_components=2, max_iter=10, tol=1e-2, reg_covar=5e-4)
+        gmm.fit(loss.numpy())
+        prob = gmm.predict_proba(loss.numpy())
+        
+        # p_threshold를 활용해 clean inputs 만을 return 합니다.
+        clean_inputs = {}
+        for k, v in inputs.items():
+            clean_inputs[k] = v[prob > self.args.p_threshold]
+            
+        return clean_inputs    
+    
+    
     def compute_loss(self, model, inputs, return_outputs=False):
         """
         How the loss is computed by Trainer. By default, all models return the loss in the first element.
-
         Subclass and override for custom behavior.
         """
         if self.label_smoother is not None and "labels" in inputs:
@@ -83,26 +123,25 @@ class CustomTrainer(Trainer):
 
         return (loss, outputs) if return_outputs else loss
         
-    def custom_training_step(self, model: nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]], cur_epoch=-1) -> torch.Tensor:
+    def custom_training_step(epoch, self, model: nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]], cur_epoch=-1) -> torch.Tensor:
         """
         Perform a training step on a batch of inputs.
-
         Subclass and override to inject custom behavior.
-
         Args:
             model (:obj:`nn.Module`):
                 The model to train.
             inputs (:obj:`Dict[str, Union[torch.Tensor, Any]]`):
                 The inputs and targets of the model.
-
                 The dictionary will be unpacked before being fed to the model. Most models expect the targets under the
                 argument :obj:`labels`. Check your model's documentation for all accepted arguments.
-
         Return:
             :obj:`torch.Tensor`: The tensor with training loss on this batch.
         """
         model.train()
         inputs = self._prepare_inputs(inputs)
+        
+        if (epoch >= self.args.warmup_period) and (self.args.p_threshold > 0):
+            inputs = self.get_clean(model, inputs)
 
         loss = self.compute_loss(model, inputs)
 
@@ -120,7 +159,6 @@ class CustomTrainer(Trainer):
     trial: Union["optuna.Trial", Dict[str, Any]] = None, ignore_keys_for_eval: Optional[List[str]] = None, **kwargs):
         """
         Main training entry point.
-
         Args:
             resume_from_checkpoint (:obj:`str` or :obj:`bool`, `optional`):
                 If a :obj:`str`, local path to a saved checkpoint as saved by a previous instance of
@@ -317,7 +355,7 @@ class CustomTrainer(Trainer):
                 if step % args.gradient_accumulation_steps == 0:
                     self.control = self.callback_handler.on_step_begin(args, self.state, self.control)
 
-                tr_loss += self.custom_training_step(model, inputs)
+                tr_loss += self.custom_training_step(epoch, model, inputs)
 
                 self.current_flos += float(self.floating_point_ops(inputs))
 
@@ -387,15 +425,12 @@ class CustomTrainer(Trainer):
     ignore_keys: Optional[List[str]] = None) -> Tuple[Optional[float], Optional[torch.Tensor], Optional[torch.Tensor]]:
         """
         Perform an evaluation step on :obj:`model` using obj:`inputs`.
-
         Subclass and override to inject custom behavior.
-
         Args:
             model (:obj:`nn.Module`):
                 The model to evaluate.
             inputs (:obj:`Dict[str, Union[torch.Tensor, Any]]`):
                 The inputs and targets of the model.
-
                 The dictionary will be unpacked before being fed to the model. Most models expect the targets under the
                 argument :obj:`labels`. Check your model's documentation for all accepted arguments.
             prediction_loss_only (:obj:`bool`):
@@ -403,7 +438,6 @@ class CustomTrainer(Trainer):
             ignore_keys (:obj:`Lst[str]`, `optional`):
                 A list of keys in the output of your model (if it is a dictionary) that should be ignored when
                 gathering predictions.
-
         Return:
             Tuple[Optional[torch.Tensor], Optional[torch.Tensor], Optional[torch.Tensor]]: A tuple with the loss,
             logits and labels (each being optional).
