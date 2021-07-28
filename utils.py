@@ -117,7 +117,7 @@ class CustomTrainer(Trainer):
         
         # 미리 학습한 gmm을 활용합니다.
         prob = self.gmm.predict_proba(loss)
-        # prob = prob[:, self.gmm.means_.argmin()]
+        prob = prob[:, self.gmm.means_.argmin()]
         
         # p_threshold를 활용해 clean inputs 만을 return 합니다.
         clean_inputs = {}
