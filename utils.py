@@ -123,7 +123,7 @@ class CustomTrainer(Trainer):
 
         return (loss, outputs) if return_outputs else loss
         
-    def custom_training_step(epoch, self, model: nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]], cur_epoch=-1) -> torch.Tensor:
+    def custom_training_step(self, epoch, model: nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]], cur_epoch=-1) -> torch.Tensor:
         """
         Perform a training step on a batch of inputs.
         Subclass and override to inject custom behavior.
