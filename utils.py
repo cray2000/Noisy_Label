@@ -69,21 +69,25 @@ class CustomTrainer(Trainer):
         
         with torch.no_grad():            
             if self.label_smoother is not None and "labels" in inputs:
-                labels = inputs.pop("labels")
+                labels = inputs["labels"]
             else:
                 labels = None
+            
             outputs = model(**inputs)
 
             if self.args.past_index >= 0:
                 self._past = outputs[self.args.past_index]
             
         # outputs로부터 logits(예측값)을 구합니다.
-        logits = output["logits"] if isinstance(output, dict) else outputs[1]
+        logits = outputs["logits"] if isinstance(output, dict) else outputs[1]
         # inputs로부터 정답을 구합니다.
-        labels = input["labels"]
+        if labels is None:
+            labels = inputs["labels"]
                 
         # 각 샘플별 로스를 계산합니다.
-        loss = CE(logits, labels).cpu().numpy().reshape(-1, 1)        
+        loss = CE(logits, labels).cpu().numpy().reshape(-1, 1)
+        
+        return loss        
         
 
     def get_clean(self, model, inputs):
@@ -101,7 +105,8 @@ class CustomTrainer(Trainer):
         # outputs로부터 logits(예측값)을 구합니다.
         logits = output["logits"] if isinstance(output, dict) else outputs[1]
         # inputs로부터 정답을 구합니다.
-        labels = input["labels"]
+        if labels is None:
+            labels = inputs["labels"]
                 
         # 각 샘플별 로스를 계산합니다.
         loss = CE(logits, labels).cpu().numpy().reshape(-1, 1)          
@@ -387,7 +392,7 @@ class CustomTrainer(Trainer):
                 if step % args.gradient_accumulation_steps == 0:
                     self.control = self.callback_handler.on_step_begin(args, self.state, self.control)
 
-                tr_loss += self.custom_training_step(model, inputs)
+                tr_loss += self.custom_training_step(model, inputs, cur_epoch=epoch)
 
                 self.current_flos += float(self.floating_point_ops(inputs))
 
