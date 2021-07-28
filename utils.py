@@ -82,8 +82,10 @@ class CustomTrainer(Trainer):
         logits = outputs["logits"] if isinstance(outputs, dict) else outputs[1]
         # inputs로부터 정답을 구합니다.
         if labels is None:
-            labels = inputs["labels"]
-                
+            labels = inputs["labels"]            
+            
+        CE = nn.CrossEntropyLoss(reduction='none')
+        
         # 각 샘플별 로스를 계산합니다.
         loss = CE(logits, labels).cpu().numpy().reshape(-1, 1)
         
@@ -107,6 +109,8 @@ class CustomTrainer(Trainer):
         # inputs로부터 정답을 구합니다.
         if labels is None:
             labels = inputs["labels"]
+        
+        CE = nn.CrossEntropyLoss(reduction='none')
                 
         # 각 샘플별 로스를 계산합니다.
         loss = CE(logits, labels).cpu().numpy().reshape(-1, 1)          
