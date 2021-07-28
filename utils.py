@@ -63,6 +63,29 @@ def str2bool(i):
 
 
 class CustomTrainer(Trainer):
+    def get_loss(self, model, inputs):
+        model.train()
+        inputs = self._prepare_inputs(inputs)
+        
+        with torch.no_grad():            
+            if self.label_smoother is not None and "labels" in inputs:
+                labels = inputs.pop("labels")
+            else:
+                labels = None
+            outputs = model(**inputs)
+
+            if self.args.past_index >= 0:
+                self._past = outputs[self.args.past_index]
+            
+        # outputs로부터 logits(예측값)을 구합니다.
+        logits = output["logits"] if isinstance(output, dict) else outputs[1]
+        # inputs로부터 정답을 구합니다.
+        labels = input["labels"]
+                
+        # 각 샘플별 로스를 계산합니다.
+        loss = CE(logits, labels).cpu().numpy().reshape(-1, 1)        
+        
+
     def get_clean(self, model, inputs):
         
         with torch.no_grad():            
@@ -75,31 +98,24 @@ class CustomTrainer(Trainer):
             if self.args.past_index >= 0:
                 self._past = outputs[self.args.past_index]
             
-            if labels is not None:
-                loss = self.label_smoother(outputs, labels)
-            else:
-                loss = outputs["loss"] if isinstance(outputs, dict) else outputs[0]
-        
         # outputs로부터 logits(예측값)을 구합니다.
-        # logits = None
+        logits = output["logits"] if isinstance(output, dict) else outputs[1]
         # inputs로부터 정답을 구합니다.
-        # labels = None
-        
+        labels = input["labels"]
+                
         # 각 샘플별 로스를 계산합니다.
-        # loss = None
+        loss = CE(logits, labels).cpu().numpy().reshape(-1, 1)          
         
-        # clean과 noisy 두 개의 분포를 가정하므로 n_components = 2 로 설정합니다.
-        # loss가 cuda tensor인 경우, numpy로 변경 필요
-        gmm = GaussianMixture(n_components=2, max_iter=10, tol=1e-2, reg_covar=5e-4)
-        gmm.fit(loss.numpy())
-        prob = gmm.predict_proba(loss.numpy())
+        # 미리 학습한 gmm을 활용합니다.
+        prob = self.gmm.predict_proba(loss)
+        prob = prob[:, self.gmm.means_.argmin()]
         
         # p_threshold를 활용해 clean inputs 만을 return 합니다.
         clean_inputs = {}
         for k, v in inputs.items():
             clean_inputs[k] = v[prob > self.args.p_threshold]
             
-        return clean_inputs    
+        return clean_inputs
     
     
     def compute_loss(self, model, inputs, return_outputs=False):
@@ -123,7 +139,7 @@ class CustomTrainer(Trainer):
 
         return (loss, outputs) if return_outputs else loss
         
-    def custom_training_step(self, epoch, model: nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]], cur_epoch=-1) -> torch.Tensor:
+    def custom_training_step(self, model: nn.Module, inputs: Dict[str, Union[torch.Tensor, Any]], cur_epoch=-1) -> torch.Tensor:
         """
         Perform a training step on a batch of inputs.
         Subclass and override to inject custom behavior.
@@ -140,7 +156,7 @@ class CustomTrainer(Trainer):
         model.train()
         inputs = self._prepare_inputs(inputs)
         
-        if (epoch >= self.args.warmup_period) and (self.args.p_threshold > 0):
+        if (cur_epoch > 2) and (self.args.p_threshold > 0):
             inputs = self.get_clean(model, inputs)
 
         loss = self.compute_loss(model, inputs)
@@ -337,7 +353,23 @@ class CustomTrainer(Trainer):
 
             steps_in_epoch = (len(epoch_iterator) if train_dataset_is_sized else args.max_steps * args.gradient_accumulation_steps)
             self.control = self.callback_handler.on_epoch_begin(args, self.state, self.control)
-
+            
+            ###################################################################################            
+            # mini batch의 loss를 모두 합한 후 GaussianMixture 계산
+            
+            all_loss = []
+            
+            for step, inputs in enumerate(epoch_iterator):
+                loss = self.get_loss(model, inputs)
+                all_loss.append(loss)
+               
+            all_loss = np.concatenate(all_loss, axis=0)
+            
+             # clean과 noisy 두 개의 분포를 가정하므로 n_components = 2 로 설정합니다.
+            self.gmm = GaussianMixture(n_components=2, max_iter=10, tol=1e-2, reg_covar=5e-4)
+            self.gmm.fit(loss)                                                           
+            ##################################################################################            
+            
             for step, inputs in enumerate(epoch_iterator):
                 # Skip past any already trained steps if resuming training
                 if steps_trained_in_current_epoch > 0:
@@ -355,7 +387,7 @@ class CustomTrainer(Trainer):
                 if step % args.gradient_accumulation_steps == 0:
                     self.control = self.callback_handler.on_step_begin(args, self.state, self.control)
 
-                tr_loss += self.custom_training_step(epoch, model, inputs)
+                tr_loss += self.custom_training_step(model, inputs)
 
                 self.current_flos += float(self.floating_point_ops(inputs))
 
