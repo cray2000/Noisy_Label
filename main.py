@@ -39,7 +39,7 @@ if __name__ == '__main__':
     parser.add_argument('--total_epochs', default=10, type=int, help='Number of epochs')
     parser.add_argument('--mixup', default=False, type=str2bool, help="Mixup Method")
     parser.add_argument('--label_smoothing', default=0.0, type=float, help="Label smoothing factor")
-    parser.add_argument('--p_threshold', default=0.5, type=float, help="MentorNet")    
+    parser.add_argument('--p_threshold', default=0.0, type=float, help="MentorNet")    
 
     p_args = parser.parse_args()
 
