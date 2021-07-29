@@ -166,6 +166,7 @@ class CustomTrainer(Trainer):
         inputs = self._prepare_inputs(inputs)
         
         if (cur_epoch > 2) and (self.args.p_threshold > 0):
+            print(f"Get Clean Data: p_threshold={self.args.p_threshold}")
             inputs = self.get_clean(model, inputs)
 
         loss = self.compute_loss(model, inputs)
