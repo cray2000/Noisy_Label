@@ -99,7 +99,7 @@ if __name__ == '__main__':
 
     preprocessed_datasets = datasets.map(preprocess_function, batched=True)
 
-    train_dataset = preprocessed_datasets['train'].shuffle()
+    train_dataset = preprocessed_datasets['train']
     valid_dataset = preprocessed_datasets['valid']
     test_dataset = preprocessed_datasets['test']
 
