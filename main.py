@@ -45,7 +45,7 @@ if __name__ == '__main__':
 
     start = time.time()
 
-    # set_seed(p_args.seed)
+    set_seed(p_args.seed)
     if not os.path.exists(p_args.result_dir):
         os.makedirs(p_args.result_dir)
 
